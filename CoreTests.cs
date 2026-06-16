@@ -3,14 +3,27 @@ namespace SheafCore.Tests;
 using Xunit;
 using Xunit.Abstractions;
 
+/// <summary>
+/// Comprehensive test suite for SheafCore domain operations.
+/// Uses xUnit v3 with TheoryData matrices for exhaustive coverage.
+/// </summary>
 public sealed class SheafCoreTests(ITestOutputHelper output)
 {
-    // High-performance matrix test suite data using C# 12 collection expressions
-    public static TheoryData<double[], double, bool, string> SensorSuiteTestData => [
+    /// <summary>
+    /// Test data matrix for matrix evaluation verification.
+    /// Each row tests a specific topological consistency scenario.
+    /// </summary>
+    public static TheoryData<double[], double, bool, string> SensorSuiteTestData =>
+    [
         ([45.2, 49.8, 44.0], 50.0, true, "GLOBAL_CONSISTENCY_SUCCESS"),
-        ([45.2, 51.1, 44.0], 50.0, false, "TOPOLOGICAL_BLOCK_CONFLICT")
+        ([45.2, 51.1, 44.0], 50.0, false, "TOPOLOGICAL_BLOCK_CONFLICT"),
+        ([50.0, 50.0, 50.0], 50.0, true, "GLOBAL_CONSISTENCY_SUCCESS"),
+        ([51.0, 51.0, 51.0], 50.0, false, "TOPOLOGICAL_BLOCK_CONFLICT")
     ];
 
+    /// <summary>
+    /// Verifies that SheafOperations.ResolveSystemState correctly evaluates topological consistency.
+    /// </summary>
     [Theory]
     [MemberData(nameof(SensorSuiteTestData))]
     public async Task ResolveSystemState_MatrixEvaluation_ReturnsExpectedTopology(
@@ -19,31 +32,28 @@ public sealed class SheafCoreTests(ITestOutputHelper output)
         bool expectedSuccess,
         string expectedStatus)
     {
-        // Arrange
-        output.WriteLine($"Starting test verification via context channel for {nameof(SheafOperations.ResolveSystemState)}");
+        output.WriteLine($"Testing {nameof(SheafOperations.ResolveSystemState)} with {streams.Length} nodes");
         
+        // Arrange: Construct edge nodes from test data
         EdgeNode[] nodeArray = new EdgeNode[streams.Length];
         for (int i = 0; i < streams.Length; i++)
         {
-            nodeArray[i] = new EdgeNode 
-            { 
-                Id = i, 
-                DataStream = streams[i], 
-                LocalThreshold = threshold 
+            nodeArray[i] = new EdgeNode
+            {
+                Id = i,
+                DataStream = streams[i],
+                LocalThreshold = threshold
             };
         }
 
-        // ReadOnlySpan window allocation optimization
         ReadOnlySpan<EdgeNode> nodesSpan = nodeArray;
-
-        // Flow async token using modern xUnit v3 TestContext rules
         var cancellationToken = TestContext.Current.CancellationToken;
         await Task.Delay(1, cancellationToken);
 
-        // Act
+        // Act: Execute topological resolution
         var result = SheafOperations.ResolveSystemState(nodesSpan);
 
-        // Assert
+        // Assert: Verify expected outcomes
         Assert.NotNull(result);
         Assert.Equal(expectedStatus, result.Status);
         Assert.Equal(expectedSuccess, result.IsSuccess);
@@ -56,6 +66,56 @@ public sealed class SheafCoreTests(ITestOutputHelper output)
         else
         {
             Assert.Empty(result.StateVector);
+            Assert.NotNull(result.ErrorMessage);
         }
+
+        output.WriteLine($"Completed test: {expectedStatus}");
+    }
+
+    /// <summary>
+    /// Verifies that empty node collections are properly rejected.
+    /// </summary>
+    [Fact]
+    public void ResolveSystemState_EmptyCollection_ReturnsFailure()
+    {
+        // Act
+        var result = SheafOperations.ResolveSystemState(ReadOnlySpan<EdgeNode>.Empty);
+
+        // Assert
+        Assert.False(result.IsSuccess);
+        Assert.Equal("SYSTEM_FAILURE", result.Status);
+        Assert.NotNull(result.ErrorMessage);
+        Assert.Empty(result.StateVector);
+
+        output.WriteLine("Empty collection test passed");
+    }
+
+    /// <summary>
+    /// Verifies that SystemResolution factory methods create valid instances.
+    /// </summary>
+    [Fact]
+    public void SystemResolution_Factories_ProduceValidResults()
+    {
+        // Arrange
+        var vector = new double[] { 1.0, 0.0, 1.0 };
+
+        // Act
+        var success = SystemResolution.Success(vector);
+        var conflict = SystemResolution.Conflict("Test conflict");
+        var failure = SystemResolution.Failure("Test failure");
+
+        // Assert
+        Assert.True(success.IsSuccess);
+        Assert.NotEmpty(success.StateVector);
+
+        Assert.False(conflict.IsSuccess);
+        Assert.Empty(conflict.StateVector);
+        Assert.Equal("TOPOLOGICAL_BLOCK_CONFLICT", conflict.Status);
+
+        Assert.False(failure.IsSuccess);
+        Assert.Empty(failure.StateVector);
+        Assert.Equal("SYSTEM_FAILURE", failure.Status);
+
+        output.WriteLine("SystemResolution factory tests passed");
     }
 }

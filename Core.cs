@@ -4,23 +4,18 @@ using System.Diagnostics.CodeAnalysis;
 
 /// <summary>
 /// Represents an immutable, memory-aligned snapshot of a network node.
+/// Uses C# 12 required properties with init-only setters for complete immutability.
 /// </summary>
 public sealed record EdgeNode
 {
     public required int Id { get; init; }
     public required double DataStream { get; init; }
     public required double LocalThreshold { get; init; }
-
-    public EdgeNode()
-    {
-        Id = default;
-        DataStream = default;
-        LocalThreshold = default;
-    }
 }
 
 /// <summary>
 /// Domain operations layer handling pure linear algebraic validation over network topologies.
+/// All operations are stateless and operate on ReadOnlySpan for zero-allocation execution paths.
 /// </summary>
 public static class SheafOperations
 {
@@ -33,13 +28,17 @@ public static class SheafOperations
             ? SystemResolution.Failure("Input node collection cannot be empty.")
             : EvaluateTopology(nodes);
 
+    /// <summary>
+    /// Evaluates the topological consistency of the provided nodes.
+    /// Computes discrepancy vectors and determines if kernel anomalies exist.
+    /// </summary>
     private static SystemResolution EvaluateTopology(ReadOnlySpan<EdgeNode> nodes)
     {
         int count = nodes.Length;
-        double[] discrepancies = new double[count];
+        Span<double> discrepancies = stackalloc double[count];
         bool hasKernelAnomaly = false;
 
-        // Layer 1 & 2: Local metrics calculated via zero-allocation execution paths
+        // Layer 1 & 2: Local metrics calculated via stack-allocated zero-copy execution paths
         for (int i = 0; i < count; i++)
         {
             discrepancies[i] = nodes[i].DataStream - nodes[i].LocalThreshold;
@@ -64,6 +63,7 @@ public static class SheafOperations
 
 /// <summary>
 /// An immutable record representing the explicit outcome of a topological matrix evaluation.
+/// Uses factory methods to construct valid instances without exposing initialization complexity.
 /// </summary>
 public sealed record SystemResolution
 {
@@ -72,31 +72,47 @@ public sealed record SystemResolution
     public required double[] StateVector { get; init; }
     public string? ErrorMessage { get; init; }
 
-    public SystemResolution()
+    /// <summary>
+    /// Creates a successful resolution with the computed state vector.
+    /// </summary>
+    public static SystemResolution Success(double[] vector)
     {
-        Status = null!;
-        StateVector = null!;
+        ArgumentNullException.ThrowIfNull(vector);
+        return new()
+        {
+            Status = "GLOBAL_CONSISTENCY_SUCCESS",
+            IsSuccess = true,
+            StateVector = vector
+        };
     }
 
-    public static SystemResolution Success(double[] vector) => new()
+    /// <summary>
+    /// Creates a conflict resolution indicating topological anomalies.
+    /// </summary>
+    public static SystemResolution Conflict(string message)
     {
-        Status = "GLOBAL_CONSISTENCY_SUCCESS",
-        IsSuccess = true,
-        StateVector = vector
-    };
+        ArgumentNullException.ThrowIfNull(message);
+        return new()
+        {
+            Status = "TOPOLOGICAL_BLOCK_CONFLICT",
+            IsSuccess = false,
+            StateVector = [],
+            ErrorMessage = message
+        };
+    }
 
-    public static SystemResolution Conflict(string message) => new()
+    /// <summary>
+    /// Creates a failure resolution indicating system-level errors.
+    /// </summary>
+    public static SystemResolution Failure(string message)
     {
-        Status = "TOPOLOGICAL_BLOCK_CONFLICT",
-        IsSuccess = false,
-        StateVector = []
-    };
-
-    public static SystemResolution Failure(string message) => new()
-    {
-        Status = "SYSTEM_FAILURE",
-        IsSuccess = false,
-        StateVector = [],
-        ErrorMessage = message
-    };
+        ArgumentNullException.ThrowIfNull(message);
+        return new()
+        {
+            Status = "SYSTEM_FAILURE",
+            IsSuccess = false,
+            StateVector = [],
+            ErrorMessage = message
+        };
+    }
 }
